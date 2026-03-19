@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MSP Quote Generator</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --green:      #2c4a3e;
+      --green-mid:  #3d6b5c;
+      --green-pale: #e8f0ec;
+      --gold:       #b8965a;
+      --cream:      #faf8f3;
+      --cream-alt:  #f2efe6;
+      --dark:       #1a1a1a;
+      --mid:        #555;
+      --rule:       #d8d0c0;
+      --white:      #fff;
+      --red:        #c0392b;
+    }
+
+    body {
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      background: var(--cream);
+      color: var(--dark);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--green);
+      border-bottom: 3px solid var(--gold);
+      padding: 0 2rem;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    header .brand {
+      display: flex;
+      align-items: baseline;
+      gap: 0.75rem;
+    }
+    header .brand h1 {
+      font-family: "Times New Roman", Times, serif;
+      font-size: 1.35rem;
+      font-weight: bold;
+      color: var(--white);
+      letter-spacing: 0.02em;
+    }
+    header .brand span {
+      font-size: 0.7rem;
+      color: #a8c4bb;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    header nav {
+      font-size: 0.75rem;
+      color: #a8c4bb;
+    }
+
+    /* ── Main ── */
+    main {
+      flex: 1;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 3rem 1.5rem;
+    }
+
+    .card {
+      background: var(--white);
+      border: 1px solid var(--rule);
+      border-radius: 4px;
+      width: 100%;
+      max-width: 560px;
+      overflow: hidden;
+      box-shadow: 0 2px 12px rgba(44,74,62,.08);
+    }
+
+    .card-header {
+      background: var(--green);
+      border-bottom: 2px solid var(--gold);
+      padding: 1.25rem 1.75rem;
+    }
+    .card-header h2 {
+      font-family: "Times New Roman", Times, serif;
+      font-size: 1.15rem;
+      color: var(--white);
+      font-weight: bold;
+    }
+    .card-header p {
+      font-size: 0.75rem;
+      color: #a8c4bb;
+      margin-top: 0.2rem;
+    }
+
+    .card-body {
+      padding: 1.75rem;
+    }
+
+    /* ── Flash messages ── */
+    .flash {
+      border-radius: 3px;
+      padding: 0.7rem 1rem;
+      font-size: 0.82rem;
+      margin-bottom: 1.25rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+    }
+    .flash.error {
+      background: #fdf0ef;
+      border: 1px solid #f5c6c2;
+      color: var(--red);
+    }
+    .flash.error::before { content: "✕"; font-weight: bold; flex-shrink: 0; }
+
+    /* ── Drop zone ── */
+    .drop-zone {
+      border: 2px dashed var(--rule);
+      border-radius: 4px;
+      padding: 2.5rem 1.5rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      background: var(--cream);
+      position: relative;
+    }
+    .drop-zone:hover,
+    .drop-zone.dragover {
+      border-color: var(--green);
+      background: var(--green-pale);
+    }
+    .drop-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+    .drop-zone .icon {
+      font-size: 2.5rem;
+      line-height: 1;
+      margin-bottom: 0.6rem;
+      color: var(--green);
+    }
+    .drop-zone .primary-text {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--dark);
+    }
+    .drop-zone .secondary-text {
+      font-size: 0.78rem;
+      color: var(--mid);
+      margin-top: 0.25rem;
+    }
+    .drop-zone .file-name {
+      margin-top: 0.75rem;
+      font-size: 0.82rem;
+      font-family: "Courier New", monospace;
+      color: var(--green-mid);
+      font-weight: 600;
+      display: none;
+    }
+    .drop-zone.has-file .file-name  { display: block; }
+    .drop-zone.has-file .primary-text { color: var(--green); }
+
+    /* ── Submit button ── */
+    .btn-generate {
+      display: block;
+      width: 100%;
+      margin-top: 1.25rem;
+      padding: 0.85rem 1rem;
+      background: var(--green);
+      color: var(--white);
+      border: none;
+      border-radius: 3px;
+      font-family: "Times New Roman", Times, serif;
+      font-size: 1rem;
+      font-weight: bold;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      transition: background 0.15s;
+      position: relative;
+      overflow: hidden;
+    }
+    .btn-generate:hover  { background: var(--green-mid); }
+    .btn-generate:active { background: #1e3329; }
+    .btn-generate:disabled {
+      background: #8aaa9e;
+      cursor: not-allowed;
+    }
+    .btn-generate .spinner {
+      display: none;
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,0.4);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      position: absolute;
+      right: 1.1rem;
+      top: 50%; transform: translateY(-50%);
+    }
+    .btn-generate.loading .spinner { display: block; }
+    .btn-generate.loading .label   { opacity: 0.6; }
+    @keyframes spin { to { transform: translateY(-50%) rotate(360deg); } }
+
+    /* ── Help text ── */
+    .help {
+      margin-top: 1.25rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--rule);
+      font-size: 0.75rem;
+      color: var(--mid);
+      line-height: 1.6;
+    }
+    .help strong { color: var(--dark); }
+
+    /* ── Footer ── */
+    footer {
+      background: var(--green);
+      border-top: 1px solid rgba(255,255,255,0.08);
+      padding: 0.75rem 2rem;
+      text-align: center;
+      font-size: 0.68rem;
+      color: #7aaa96;
+      flex-shrink: 0;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <h1>MSP Construction Ltd</h1>
+    <span>Quote Generator</span>
+  </div>
+  <nav>Internal Tool</nav>
+</header>
+
+<main>
+  <div class="card">
+    <div class="card-header">
+      <h2>Generate PDF Quote</h2>
+      <p>Upload an Excel workbook to produce a landscape PDF quote with full breakdown.</p>
+    </div>
+    <div class="card-body">
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+          <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endwith %}
+
+      <form id="upload-form" method="POST" action="/generate" enctype="multipart/form-data">
+        <div class="drop-zone" id="drop-zone">
+          <input
+            type="file"
+            name="excel_file"
+            id="excel-file"
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          />
+          <div class="icon">📊</div>
+          <div class="primary-text">Drop your Excel file here</div>
+          <div class="secondary-text">or click to browse — .xlsx only</div>
+          <div class="file-name" id="file-name-display"></div>
+        </div>
+
+        <button type="submit" class="btn-generate" id="submit-btn" disabled>
+          <span class="label">Generate PDF Quote</span>
+          <span class="spinner"></span>
+        </button>
+      </form>
+
+      <div class="help">
+        <strong>Required sheets in the workbook:</strong><br>
+        • <code>Client Summary (2)</code> — client name, address, date, scope, and summary table<br>
+        • <code>MSP LMS</code> — full labour &amp; materials estimate with section breakdowns<br><br>
+        The PDF will download automatically when ready.
+      </div>
+
+    </div>
+  </div>
+</main>
+
+<footer>
+  MSP Construction Ltd &mdash; Internal Quote Generator &mdash; Prices exclude VAT
+</footer>
+
+<script>
+  const dropZone   = document.getElementById("drop-zone");
+  const fileInput  = document.getElementById("excel-file");
+  const fileDisplay= document.getElementById("file-name-display");
+  const submitBtn  = document.getElementById("submit-btn");
+  const form       = document.getElementById("upload-form");
+
+  function setFile(file) {
+    if (!file) return;
+    fileDisplay.textContent = file.name;
+    dropZone.classList.add("has-file");
+    submitBtn.disabled = false;
+  }
+
+  fileInput.addEventListener("change", () => {
+    setFile(fileInput.files[0]);
+  });
+
+  dropZone.addEventListener("dragover", e => {
+    e.preventDefault();
+    dropZone.classList.add("dragover");
+  });
+  dropZone.addEventListener("dragleave", () => {
+    dropZone.classList.remove("dragover");
+  });
+  dropZone.addEventListener("drop", e => {
+    e.preventDefault();
+    dropZone.classList.remove("dragover");
+    const file = e.dataTransfer.files[0];
+    if (file) {
+      // Assign to the file input so the form submits it
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      fileInput.files = dt.files;
+      setFile(file);
+    }
+  });
+
+  form.addEventListener("submit", () => {
+    submitBtn.classList.add("loading");
+    submitBtn.disabled = true;
+  });
+</script>
+
+</body>
+</html>
