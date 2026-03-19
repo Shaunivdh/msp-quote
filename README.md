@@ -21,6 +21,8 @@ Internal web tool for MSP Construction Ltd. Upload an Excel workbook and instant
 
 **Prerequisites:** Python 3.10+
 
+> **macOS/Linux:** use `python3` and `pip3`. The `python` command may not exist.
+
 ```bash
 # 1. Clone and enter the repo
 git clone <repo-url>
@@ -28,7 +30,8 @@ cd msp-quote
 
 # 2. Create and activate a virtual environment
 python3 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+source .venv/bin/activate       # macOS/Linux
+# .venv\Scripts\activate        # Windows
 
 # 3. Install dependencies
 pip install -r requirements.txt
@@ -38,7 +41,7 @@ cp .env.example .env
 # Edit .env — leave APP_PASSWORD blank to skip auth on localhost
 
 # 5. Start the dev server
-python app.py
+python3 app.py
 ```
 
 Then open [http://localhost:3000](http://localhost:3000).
