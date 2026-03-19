@@ -298,6 +298,7 @@
 
 <footer>
   MSP Construction Ltd &mdash; Internal Quote Generator &mdash; Prices exclude VAT
+  &mdash; Last deployed {{ deployed_at }}
 </footer>
 
 <script>
@@ -338,9 +339,69 @@
     }
   });
 
-  form.addEventListener("submit", () => {
+  const flashContainer = document.querySelector(".card-body");
+
+  function showWarning(msg) {
+    const div = document.createElement("div");
+    div.className = "flash warning";
+    div.textContent = msg;
+    flashContainer.prepend(div);
+  }
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    // Clear any existing flash messages
+    flashContainer.querySelectorAll(".flash").forEach(el => el.remove());
     submitBtn.classList.add("loading");
     submitBtn.disabled = true;
+
+    const restore = () => {
+      submitBtn.classList.remove("loading");
+      submitBtn.disabled = false;
+    };
+
+    try {
+      const resp = await fetch(form.action, {
+        method: "POST",
+        body: new FormData(form),
+      });
+
+      // Restore the button as soon as any response arrives
+      restore();
+
+      const contentType = resp.headers.get("Content-Type") || "";
+
+      if (resp.ok && contentType.includes("application/pdf")) {
+        // Success — download the PDF
+        const blob = await resp.blob();
+        const disposition = resp.headers.get("Content-Disposition") || "";
+        const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+        const filename = match ? match[1].replace(/['"]/g, "") : "quote.pdf";
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        restore();
+        // Show any warnings returned in the response header
+        const raw = resp.headers.get("X-PDF-Warnings");
+        if (raw) {
+          try { JSON.parse(raw).forEach(showWarning); } catch (_) {}
+        }
+      } else {
+        // Server returned an error page — write it to show flash messages
+        const html = await resp.text();
+        document.open();
+        document.write(html);
+        document.close();
+      }
+    } catch (err) {
+      console.error("Upload failed:", err);
+      restore();
+    }
   });
 </script>
 

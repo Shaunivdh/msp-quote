@@ -9,6 +9,17 @@ from quote_engine import generate_pdf
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "msp-dev-key-change-in-production")
 app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024  # 20 MB
+app.config["TEMPLATES_AUTO_RELOAD"] = True
+
+# Set DEPLOYED_AT env var at deploy time, or fall back to process start time
+_raw = os.environ.get("DEPLOYED_AT")
+if _raw:
+    try:
+        DEPLOYED_AT = datetime.fromisoformat(_raw).strftime("%-d %B %Y at %H:%M")
+    except ValueError:
+        DEPLOYED_AT = _raw
+else:
+    DEPLOYED_AT = datetime.now().strftime("%-d %B %Y at %H:%M")
 
 
 # ── Simple password protection ────────────────────────────────────────────────
@@ -40,7 +51,7 @@ def require_auth(f):
 @app.route("/")
 @require_auth
 def index():
-    return render_template("index.html")
+    return render_template("index.html", deployed_at=DEPLOYED_AT)
 
 
 @app.route("/generate", methods=["POST"])
@@ -59,8 +70,6 @@ def generate():
     try:
         excel_bytes = BytesIO(f.read())
         pdf_buf, pdf_warnings = generate_pdf(excel_bytes)
-        for w in pdf_warnings:
-            flash(w, "warning")
     except KeyError as e:
         flash(f"Could not find sheet {e} in the workbook. "
               "Make sure the file has 'Client Summary (2)' and 'MSP LMS' tabs.", "error")
@@ -73,12 +82,16 @@ def generate():
     stem = f.filename.rsplit(".", 1)[0]
     download_name = f"{stem}_quote_{datetime.today().strftime('%Y%m%d')}.pdf"
 
-    return send_file(
+    import json
+    response = send_file(
         pdf_buf,
         mimetype="application/pdf",
         as_attachment=True,
         download_name=download_name,
     )
+    if pdf_warnings:
+        response.headers["X-PDF-Warnings"] = json.dumps(pdf_warnings)
+    return response
 
 
 @app.errorhandler(413)
