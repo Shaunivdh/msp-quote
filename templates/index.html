@@ -120,6 +120,12 @@
       color: var(--red);
     }
     .flash.error::before { content: "✕"; font-weight: bold; flex-shrink: 0; }
+    .flash.warning {
+      background: #fffbea;
+      border: 1px solid #f0d080;
+      color: #7a5c00;
+    }
+    .flash.warning::before { content: "⚠"; font-weight: bold; flex-shrink: 0; }
 
     /* ── Drop zone ── */
     .drop-zone {

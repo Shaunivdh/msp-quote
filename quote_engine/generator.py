@@ -95,35 +95,95 @@ def fmtp(v):
     return f"{float(v)*100:.2f}%"
 
 def is_sec(s):
+    if isinstance(s, int): return s > 0
+    if isinstance(s, float): return s > 0 and s == int(s)
     if not isinstance(s, str): return False
     p = s.strip().split(".")
     return len(p) == 2 and p[1] == "0" and p[0].isdigit()
 
 def is_sub(s):
+    if isinstance(s, int): return False
+    if isinstance(s, float): return s != int(s)
     if not isinstance(s, str): return False
     p = s.strip().split(".")
     return len(p) == 2 and p[1] != "0" and p[0].isdigit()
 
+def norm_num(s):
+    """Normalise int/float/str item numbers to strings like '1.0' or '1.1'."""
+    if isinstance(s, int):   return f"{s}.0"
+    if isinstance(s, float): return f"{int(s)}.0" if s == int(s) else f"{s:.10g}"
+    return str(s).strip()
+
 def fmt_date(dt):
     return dt.strftime("%d %B %Y").lstrip("0")
+
+def find_summary_price_col(rows):
+    """Return the column index containing 'Total Excl VAT' prices in Client Summary."""
+    for row in rows:
+        if not any(c is not None for c in row):
+            continue
+        for i, cell in enumerate(row):
+            if isinstance(cell, str) and "total excl vat" in cell.lower():
+                return i
+    return 3  # safe default
+
+def find_lms_cols(rows):
+    """Detect financial column indices by locating the Labour Total header in MSP LMS."""
+    DEFAULTS = dict(labour=7, material=13, subcon=18, act_cost=20,
+                    prelims=22, prelims_pct=24, po=26, sell=28)
+    for row in rows[:60]:
+        cells = [str(v).lower().strip() if v is not None else "" for v in (list(row) + [""]*40)]
+        for i, v in enumerate(cells):
+            if "labour" in v and "total" in v:
+                offset = i - DEFAULTS["labour"]
+                return {k: v2 + offset for k, v2 in DEFAULTS.items()}
+    return DEFAULTS
+
+
+_XL_ERRORS = {"#REF!", "#VALUE!", "#N/A", "#DIV/0!", "#NAME?", "#NULL!", "#NUM!"}
+
+def _find_ref_errors(wb):
+    """Return a list of warning strings for any formula-error cells found in the workbook."""
+    warnings = []
+    for sheet_name in [SUMMARY_SHEET, DETAIL_SHEET]:
+        if sheet_name not in wb.sheetnames:
+            continue
+        ws = wb[sheet_name]
+        error_cells = []
+        for row in ws.iter_rows():
+            for cell in row:
+                if isinstance(cell.value, str) and cell.value.strip().upper() in _XL_ERRORS:
+                    error_cells.append(f"{cell.coordinate} ({cell.value})")
+        if error_cells:
+            warnings.append(
+                f"Sheet '{sheet_name}' contains formula errors in "
+                f"{len(error_cells)} cell(s): {', '.join(error_cells[:5])}"
+                + (" …" if len(error_cells) > 5 else "")
+                + ". Affected values will appear blank in the PDF."
+            )
+    return warnings
 
 
 # ── READ EXCEL ────────────────────────────────────────────────────────────────
 def read_excel(file_obj):
     """Accept a path string or any file-like object (BytesIO, SpooledTemporaryFile, etc.)."""
     wb = openpyxl.load_workbook(file_obj, data_only=True)
+    warnings = _find_ref_errors(wb)
 
     # ── Client Summary (2) ────────────────────────────────────────────────────
     ws1 = wb[SUMMARY_SHEET]
+    rows1 = list(ws1.iter_rows(values_only=True))
+    price_col = find_summary_price_col(rows1)
     hdr = {"date": None, "client": None, "address": None, "notes": None, "start_date": "TBC"}
     summary_items = []
 
-    for row in ws1.iter_rows(values_only=True):
+    for row in rows1:
         if not any(c is not None for c in row):
             continue
-        a = str(row[0]).strip() if row[0] else ""
+        a_raw = row[0]
+        a = str(a_raw).strip() if a_raw is not None else ""
         b = row[1]
-        d = row[3] if len(row) > 3 else None
+        d = row[price_col] if len(row) > price_col else None
 
         if a == "Date" and b:
             hdr["date"] = fmt_date(b) if isinstance(b, datetime) else str(b)
@@ -135,9 +195,10 @@ def read_excel(file_obj):
             hdr["notes"] = str(b).strip() if b else ""
         elif a == "Start Date":
             hdr["start_date"] = str(b).strip() if b else "TBC"
-        elif is_sec(a) or a == "0.0":
+        elif is_sec(a_raw) or a == "0.0":
+            num = norm_num(a_raw) if isinstance(a_raw, (int, float)) else a
             price = float(d) if isinstance(d, (int, float)) else None
-            summary_items.append(SummaryItem(a, str(b).strip() if b else "", price))
+            summary_items.append(SummaryItem(num, str(b).strip() if b else "", price))
         elif a == "" and isinstance(b, str) and "TOTAL" in b.upper():
             summary_items.append(SummaryItem("", "TOTAL EXCL VAT", sf(d)))
 
@@ -149,13 +210,14 @@ def read_excel(file_obj):
     # ── MSP LMS ───────────────────────────────────────────────────────────────
     ws2   = wb[DETAIL_SHEET]
     rows2 = list(ws2.iter_rows(values_only=True))
+    C     = find_lms_cols(rows2)
 
     detail_start = None
     for i, row in enumerate(rows2):
         r = list(row) + [None] * 35
-        if (isinstance(r[1], str) and r[1].strip() == "1.0"
-                and isinstance(r[2], str) and "Prelim" in r[2]
-                and isinstance(r[28], str)):
+        b, c = r[1], r[2]
+        b_str = norm_num(b) if isinstance(b, (int, float)) else (str(b).strip() if isinstance(b, str) else "")
+        if b_str == "1.0" and isinstance(c, str) and "Prelim" in c:
             detail_start = i
             break
 
@@ -165,11 +227,12 @@ def read_excel(file_obj):
         for row in rows2[detail_start:]:
             r    = list(row) + [None] * 35
             b, c, d = r[1], r[2], r[3]
-            if not isinstance(b, str): continue
-            item = b.strip()
+            if b is None: continue
+            item = norm_num(b) if isinstance(b, (int, float)) else (str(b).strip() if isinstance(b, str) else "")
+            if not item: continue
             desc = str(c).strip() if c else ""
 
-            if is_sec(item):
+            if is_sec(b):
                 if cur is not None: sections.append(cur)
                 cur = Section(num=item, title=desc)
                 continue
@@ -177,26 +240,26 @@ def read_excel(file_obj):
             if cur is None: continue
 
             if desc == "Activity Total":
-                cur.tot_labour      = sf(r[7])
-                cur.tot_material    = sf(r[13])
-                cur.tot_subcon      = sf(r[18])
-                cur.tot_act         = sf(r[20])
-                cur.tot_prelims     = sf(r[22])
-                cur.tot_prelims_pct = sf(r[24])
-                cur.tot_po          = sf(r[26])
-                cur.tot_sell        = sf(r[28])
+                cur.tot_labour      = sf(r[C["labour"]])
+                cur.tot_material    = sf(r[C["material"]])
+                cur.tot_subcon      = sf(r[C["subcon"]])
+                cur.tot_act         = sf(r[C["act_cost"]])
+                cur.tot_prelims     = sf(r[C["prelims"]])
+                cur.tot_prelims_pct = sf(r[C["prelims_pct"]])
+                cur.tot_po          = sf(r[C["po"]])
+                cur.tot_sell        = sf(r[C["sell"]])
                 continue
 
             if desc in ("Description", "TOTAL EXCL VAT", "TOTAL FOR ALL WORKS"): continue
             if r[5] is not None and desc.lower().startswith("labour"): continue
 
-            if is_sub(item):
+            if is_sub(b):
                 cur.items.append(SubItem(
                     num=item, desc=desc,
                     note=str(d).strip() if d else None,
-                    labour=sf(r[7]), material=sf(r[13]), subcon=sf(r[18]),
-                    activity_cost=sf(r[20]), prelims=sf(r[22]),
-                    prelims_pct=sf(r[24]), po=sf(r[26]), sell=sf(r[28]),
+                    labour=sf(r[C["labour"]]), material=sf(r[C["material"]]), subcon=sf(r[C["subcon"]]),
+                    activity_cost=sf(r[C["act_cost"]]), prelims=sf(r[C["prelims"]]),
+                    prelims_pct=sf(r[C["prelims_pct"]]), po=sf(r[C["po"]]), sell=sf(r[C["sell"]]),
                 ))
 
         if cur is not None: sections.append(cur)
@@ -205,7 +268,7 @@ def read_excel(file_obj):
         if sec.num == "1.0" and sec.tot_sell == 0.0:
             sec.tot_sell = sum(it.sell for it in sec.items)
 
-    return hdr, summary_items, grand_total, sections
+    return hdr, summary_items, grand_total, sections, warnings
 
 
 # ── PAGE CHROME ───────────────────────────────────────────────────────────────
@@ -534,10 +597,10 @@ def build_pdf(hdr, summary_items, grand_total, sections) -> BytesIO:
 
 
 # ── PUBLIC API ────────────────────────────────────────────────────────────────
-def generate_pdf(file_obj) -> BytesIO:
-    """Main entry point. Accepts any file-like object or path string."""
-    hdr, summary_items, grand_total, sections = read_excel(file_obj)
-    return build_pdf(hdr, summary_items, grand_total, sections)
+def generate_pdf(file_obj):
+    """Main entry point. Returns (BytesIO, list[str]) — PDF buffer and any warnings."""
+    hdr, summary_items, grand_total, sections, warnings = read_excel(file_obj)
+    return build_pdf(hdr, summary_items, grand_total, sections), warnings
 
 
 def _make_ref(date_str):

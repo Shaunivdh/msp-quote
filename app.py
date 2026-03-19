@@ -58,7 +58,9 @@ def generate():
 
     try:
         excel_bytes = BytesIO(f.read())
-        pdf_buf = generate_pdf(excel_bytes)
+        pdf_buf, pdf_warnings = generate_pdf(excel_bytes)
+        for w in pdf_warnings:
+            flash(w, "warning")
     except KeyError as e:
         flash(f"Could not find sheet {e} in the workbook. "
               "Make sure the file has 'Client Summary (2)' and 'MSP LMS' tabs.", "error")
@@ -86,4 +88,4 @@ def too_large(e):
 
 
 if __name__ == "__main__":
-    app.run(debug=False, port=5000)
+    app.run(debug=False, port=3000)
