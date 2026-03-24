@@ -5,10 +5,11 @@ from flask import (Flask, request, redirect, url_for, render_template,
                    flash, send_file, Response)
 from datetime import datetime
 from quote_engine import generate_pdf
+from dxf_engine import parse_dxf_to_excel
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "msp-dev-key-change-in-production")
-app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024  # 20 MB
+app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB (DXF files can be large)
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 
 # Set DEPLOYED_AT env var at deploy time, or fall back to process start time
@@ -94,10 +95,73 @@ def generate():
     return response
 
 
+@app.route("/dxf")
+@require_auth
+def dxf_index():
+    return render_template("dxf.html", deployed_at=DEPLOYED_AT)
+
+
+def _collect_dxf_files(uploaded_files):
+    """Return list of (filename, bytes) from uploaded .dxf and/or .zip files."""
+    import zipfile
+    result = []
+    for f in uploaded_files:
+        name_lower = f.filename.lower()
+        if name_lower.endswith(".dxf"):
+            result.append((f.filename, f.read()))
+        elif name_lower.endswith(".zip"):
+            raw = f.read()
+            try:
+                with zipfile.ZipFile(BytesIO(raw)) as zf:
+                    dxf_names = [n for n in zf.namelist()
+                                 if n.lower().endswith(".dxf") and not n.startswith("__MACOSX")]
+                    if not dxf_names:
+                        raise ValueError(f"No .dxf files found inside '{f.filename}'.")
+                    for name in dxf_names:
+                        result.append((os.path.basename(name), zf.read(name)))
+            except zipfile.BadZipFile:
+                raise ValueError(f"'{f.filename}' is not a valid zip file.")
+        else:
+            raise ValueError(f"Unsupported file type: '{f.filename}'. Upload .dxf or .zip files.")
+    return result
+
+
+@app.route("/dxf/generate", methods=["POST"])
+@require_auth
+def dxf_generate():
+    uploaded = [f for f in request.files.getlist("dxf_files") if f and f.filename]
+
+    if not uploaded:
+        flash("No files selected.", "error")
+        return redirect(url_for("dxf_index"))
+
+    try:
+        files = _collect_dxf_files(uploaded)
+        excel_buf = parse_dxf_to_excel(files)
+    except ValueError as e:
+        flash(str(e), "error")
+        return redirect(url_for("dxf_index"))
+    except Exception as e:
+        app.logger.exception("DXF parsing failed")
+        flash(f"Something went wrong parsing the DXF: {e}", "error")
+        return redirect(url_for("dxf_index"))
+
+    stem = os.path.splitext(uploaded[0].filename)[0] if len(uploaded) == 1 else "drawings"
+    download_name = f"{stem}_measurements_{datetime.today().strftime('%Y%m%d')}.xlsx"
+
+    return send_file(
+        excel_buf,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=download_name,
+    )
+
+
 @app.errorhandler(413)
 def too_large(e):
-    flash("File too large. Maximum upload size is 20 MB.", "error")
-    return redirect(url_for("index")), 413
+    flash("File too large. Maximum upload size is 200 MB.", "error")
+    dest = url_for("dxf_index") if "/dxf" in request.path else url_for("index")
+    return redirect(dest), 413
 
 
 if __name__ == "__main__":

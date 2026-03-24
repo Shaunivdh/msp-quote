@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MSP Quote Generator</title>
+  <title>MSP DXF Measurements</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -83,7 +83,7 @@
       border: 1px solid var(--rule);
       border-radius: 4px;
       width: 100%;
-      max-width: 560px;
+      max-width: 580px;
       overflow: hidden;
       box-shadow: 0 2px 12px rgba(44,74,62,.08);
     }
@@ -105,9 +105,7 @@
       margin-top: 0.2rem;
     }
 
-    .card-body {
-      padding: 1.75rem;
-    }
+    .card-body { padding: 1.75rem; }
 
     /* ── Flash messages ── */
     .flash {
@@ -131,6 +129,12 @@
       color: #7a5c00;
     }
     .flash.warning::before { content: "⚠"; font-weight: bold; flex-shrink: 0; }
+    .flash.success {
+      background: #edf7f2;
+      border: 1px solid #a8d8be;
+      color: #1a5c38;
+    }
+    .flash.success::before { content: "✓"; font-weight: bold; flex-shrink: 0; }
 
     /* ── Drop zone ── */
     .drop-zone {
@@ -142,6 +146,7 @@
       transition: border-color 0.15s, background 0.15s;
       background: var(--cream);
       position: relative;
+      min-height: 140px;
     }
     .drop-zone:hover,
     .drop-zone.dragover {
@@ -172,16 +177,36 @@
       color: var(--mid);
       margin-top: 0.25rem;
     }
-    .drop-zone .file-name {
-      margin-top: 0.75rem;
-      font-size: 0.82rem;
-      font-family: "Courier New", monospace;
-      color: var(--green-mid);
-      font-weight: 600;
+
+    /* File list */
+    .file-list {
+      margin-top: 0.85rem;
       display: none;
+      text-align: left;
     }
-    .drop-zone.has-file .file-name  { display: block; }
-    .drop-zone.has-file .primary-text { color: var(--green); }
+    .file-list.visible { display: block; }
+    .file-list-title {
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--green);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 0.35rem;
+    }
+    .file-item {
+      font-size: 0.8rem;
+      font-family: "Courier New", monospace;
+      color: var(--dark);
+      padding: 0.2rem 0.4rem;
+      background: var(--cream-alt);
+      border-radius: 2px;
+      margin-bottom: 0.2rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .file-item::before { content: "◦"; color: var(--gold); }
+    .drop-zone.has-files .primary-text { color: var(--green); }
 
     /* ── Submit button ── */
     .btn-generate {
@@ -204,10 +229,7 @@
     }
     .btn-generate:hover  { background: var(--green-mid); }
     .btn-generate:active { background: #1e3329; }
-    .btn-generate:disabled {
-      background: #8aaa9e;
-      cursor: not-allowed;
-    }
+    .btn-generate:disabled { background: #8aaa9e; cursor: not-allowed; }
     .btn-generate .spinner {
       display: none;
       width: 16px; height: 16px;
@@ -223,16 +245,32 @@
     .btn-generate.loading .label   { opacity: 0.6; }
     @keyframes spin { to { transform: translateY(-50%) rotate(360deg); } }
 
-    /* ── Help text ── */
-    .help {
+    /* ── Sheets info ── */
+    .sheets-info {
       margin-top: 1.25rem;
       padding-top: 1rem;
       border-top: 1px solid var(--rule);
       font-size: 0.75rem;
       color: var(--mid);
-      line-height: 1.6;
+      line-height: 1.7;
     }
-    .help strong { color: var(--dark); }
+    .sheets-info strong { color: var(--dark); }
+    .sheet-row {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 0.1rem;
+    }
+    .sheet-name {
+      font-family: "Courier New", monospace;
+      font-size: 0.72rem;
+      background: var(--cream-alt);
+      border: 1px solid var(--rule);
+      border-radius: 2px;
+      padding: 0 0.35rem;
+      color: var(--green);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
 
     /* ── Footer ── */
     footer {
@@ -251,16 +289,18 @@
 <header>
   <div class="brand">
     <h1>MSP Construction Ltd</h1>
-    <span>Quote Generator</span>
+    <span>DXF Measurements</span>
   </div>
-  <nav><a href="/dxf">DXF Measurements</a></nav>
+  <nav>
+    <a href="/">Quote Generator</a>
+  </nav>
 </header>
 
 <main>
   <div class="card">
     <div class="card-header">
-      <h2>Generate PDF Quote</h2>
-      <p>Upload an Excel workbook to produce a landscape PDF quote with full breakdown.</p>
+      <h2>Extract Measurements from DXF</h2>
+      <p>Upload one or more DXF drawings — download an Excel workbook with full measurement breakdown.</p>
     </div>
     <div class="card-body">
 
@@ -270,31 +310,52 @@
         {% endfor %}
       {% endwith %}
 
-      <form id="upload-form" method="POST" action="/generate" enctype="multipart/form-data">
+      <form id="upload-form" method="POST" action="/dxf/generate" enctype="multipart/form-data">
         <div class="drop-zone" id="drop-zone">
           <input
             type="file"
-            name="excel_file"
-            id="excel-file"
-            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            name="dxf_files"
+            id="dxf-files"
+            accept=".dxf,.zip"
+            multiple
           />
-          <div class="icon">📊</div>
-          <div class="primary-text">Drop your Excel file here</div>
-          <div class="secondary-text">or click to browse — .xlsx only</div>
-          <div class="file-name" id="file-name-display"></div>
+          <div class="icon">📐</div>
+          <div class="primary-text">Drop your DXF files here</div>
+          <div class="secondary-text">or click to browse — .dxf or .zip, multiple files supported</div>
+          <div class="file-list" id="file-list">
+            <div class="file-list-title">Files queued</div>
+            <div id="file-items"></div>
+          </div>
         </div>
 
         <button type="submit" class="btn-generate" id="submit-btn" disabled>
-          <span class="label">Generate PDF Quote</span>
+          <span class="label">Extract to Excel</span>
           <span class="spinner"></span>
         </button>
       </form>
 
-      <div class="help">
-        <strong>Required sheets in the workbook:</strong><br>
-        • <code>Client Summary (2)</code> — client name, address, date, scope, and summary table<br>
-        • <code>MSP LMS</code> — full labour &amp; materials estimate with section breakdowns<br><br>
-        The PDF will download automatically when ready.
+      <div class="sheets-info">
+        <strong>Output workbook — 5 sheets:</strong><br><br>
+        <div class="sheet-row">
+          <span class="sheet-name">Dimensions by Drawing</span>
+          <span>All dimensions grouped by section (Ground Floor, First Floor, Elevations…), sorted largest → smallest</span>
+        </div>
+        <div class="sheet-row">
+          <span class="sheet-name">All Dimensions (sorted)</span>
+          <span>Flat list of every dimension, sorted by size for quick overview</span>
+        </div>
+        <div class="sheet-row">
+          <span class="sheet-name">Steel Sections</span>
+          <span>Structural steel members detected in annotations (UC, UB, PFC, CHS…)</span>
+        </div>
+        <div class="sheet-row">
+          <span class="sheet-name">Windows &amp; Doors</span>
+          <span>Window and door type labels (A through G) extracted from drawing text</span>
+        </div>
+        <div class="sheet-row">
+          <span class="sheet-name">Floor Heights</span>
+          <span>Floor level annotations (FFL, datum, +NNNN references)</span>
+        </div>
       </div>
 
     </div>
@@ -302,61 +363,60 @@
 </main>
 
 <footer>
-  MSP Construction Ltd &mdash; Internal Quote Generator &mdash; Prices exclude VAT
+  MSP Construction Ltd &mdash; DXF Measurement Extractor &mdash; Internal Tool
   &mdash; Last deployed {{ deployed_at }}
 </footer>
 
 <script>
-  const dropZone   = document.getElementById("drop-zone");
-  const fileInput  = document.getElementById("excel-file");
-  const fileDisplay= document.getElementById("file-name-display");
-  const submitBtn  = document.getElementById("submit-btn");
-  const form       = document.getElementById("upload-form");
+  const dropZone  = document.getElementById("drop-zone");
+  const fileInput = document.getElementById("dxf-files");
+  const fileItems = document.getElementById("file-items");
+  const fileList  = document.getElementById("file-list");
+  const submitBtn = document.getElementById("submit-btn");
+  const form      = document.getElementById("upload-form");
 
-  function setFile(file) {
-    if (!file) return;
-    fileDisplay.textContent = file.name;
-    dropZone.classList.add("has-file");
+  function renderFiles(files) {
+    fileItems.innerHTML = "";
+    if (!files || files.length === 0) {
+      dropZone.classList.remove("has-files");
+      fileList.classList.remove("visible");
+      submitBtn.disabled = true;
+      return;
+    }
+    Array.from(files).forEach(f => {
+      const div = document.createElement("div");
+      div.className = "file-item";
+      div.textContent = f.name;
+      fileItems.appendChild(div);
+    });
+    dropZone.classList.add("has-files");
+    fileList.classList.add("visible");
     submitBtn.disabled = false;
   }
 
-  fileInput.addEventListener("change", () => {
-    setFile(fileInput.files[0]);
-  });
+  fileInput.addEventListener("change", () => renderFiles(fileInput.files));
 
   dropZone.addEventListener("dragover", e => {
     e.preventDefault();
     dropZone.classList.add("dragover");
   });
-  dropZone.addEventListener("dragleave", () => {
-    dropZone.classList.remove("dragover");
-  });
+  dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
   dropZone.addEventListener("drop", e => {
     e.preventDefault();
     dropZone.classList.remove("dragover");
-    const file = e.dataTransfer.files[0];
-    if (file) {
-      // Assign to the file input so the form submits it
-      const dt = new DataTransfer();
-      dt.items.add(file);
-      fileInput.files = dt.files;
-      setFile(file);
-    }
+    const dxfFiles = Array.from(e.dataTransfer.files).filter(f =>
+      f.name.toLowerCase().endsWith(".dxf") || f.name.toLowerCase().endsWith(".zip")
+    );
+    if (!dxfFiles.length) return;
+    const dt = new DataTransfer();
+    dxfFiles.forEach(f => dt.items.add(f));
+    fileInput.files = dt.files;
+    renderFiles(fileInput.files);
   });
-
-  const flashContainer = document.querySelector(".card-body");
-
-  function showWarning(msg) {
-    const div = document.createElement("div");
-    div.className = "flash warning";
-    div.textContent = msg;
-    flashContainer.prepend(div);
-  }
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    // Clear any existing flash messages
-    flashContainer.querySelectorAll(".flash").forEach(el => el.remove());
+    document.querySelectorAll(".flash").forEach(el => el.remove());
     submitBtn.classList.add("loading");
     submitBtn.disabled = true;
 
@@ -370,18 +430,14 @@
         method: "POST",
         body: new FormData(form),
       });
-
-      // Restore the button as soon as any response arrives
       restore();
 
-      const contentType = resp.headers.get("Content-Type") || "";
-
-      if (resp.ok && contentType.includes("application/pdf")) {
-        // Success — download the PDF
+      const ct = resp.headers.get("Content-Type") || "";
+      if (resp.ok && ct.includes("spreadsheetml")) {
         const blob = await resp.blob();
         const disposition = resp.headers.get("Content-Disposition") || "";
         const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-        const filename = match ? match[1].replace(/['"]/g, "") : "quote.pdf";
+        const filename = match ? match[1].replace(/['"]/g, "") : "measurements.xlsx";
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
@@ -390,14 +446,7 @@
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        restore();
-        // Show any warnings returned in the response header
-        const raw = resp.headers.get("X-PDF-Warnings");
-        if (raw) {
-          try { JSON.parse(raw).forEach(showWarning); } catch (_) {}
-        }
       } else {
-        // Server returned an error page — write it to show flash messages
         const html = await resp.text();
         document.open();
         document.write(html);
